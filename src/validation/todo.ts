@@ -1,4 +1,3 @@
-// validations/todo.ts
 import {z} from 'zod';
 
 export const todoStatusEnum = z.enum(['pending', 'completed']);
