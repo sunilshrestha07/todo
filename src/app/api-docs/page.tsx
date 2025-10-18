@@ -31,7 +31,11 @@ const openApiSpec = {
                 type: 'object',
                 properties: {
                   title: {type: 'string'},
-                  completed: {type: 'boolean'},
+                  status: {
+                    type: 'string',
+                    enum: ['pending', 'completed'],
+                    description: 'The status of the todo',
+                  },
                 },
               },
             },

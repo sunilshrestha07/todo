@@ -1,18 +1,18 @@
 // app/api/todos/[id]/route.ts
 import {NextRequest, NextResponse} from 'next/server';
 import '@/lib/db';
-import {getTodo, updateTodo, deleteTodo} from '@/controllers/todoController';
+import {Todo} from '@/models/todo';
 import {updateTodoSchema} from '@/validation/todo';
 import mongoose from 'mongoose';
 
-export async function GET(_req: NextRequest, context: {params: {id: string}}) {
+export async function GET(_req: NextRequest, context: {params: Promise<{id: string}>}) {
   try {
-    const {params} = context;
+    const params = await context.params;
     const id = params.id;
     if (!mongoose.isValidObjectId(id)) {
       return NextResponse.json({error: 'Invalid ID'}, {status: 400});
     }
-    const todo = await getTodo(id);
+    const todo = await Todo.findById(id).lean();
     if (!todo) return NextResponse.json({error: 'Not found'}, {status: 404});
     return NextResponse.json({data: todo}, {status: 200});
   } catch (err: any) {
@@ -20,16 +20,19 @@ export async function GET(_req: NextRequest, context: {params: {id: string}}) {
   }
 }
 
-export async function PUT(req: NextRequest, context: {params: {id: string}}) {
+export async function PUT(req: NextRequest, context: {params: Promise<{id: string}>}) {
   try {
-    const {params} = context;
+    const params = await context.params;
     const id = params.id;
     if (!mongoose.isValidObjectId(id)) {
       return NextResponse.json({error: 'Invalid ID'}, {status: 400});
     }
     const body = await req.json();
     const parsed = updateTodoSchema.parse(body);
-    const updated = await updateTodo(id, parsed);
+    const updated = await Todo.findByIdAndUpdate(id, parsed, {
+      new: true,
+      runValidators: true,
+    }).lean();
     if (!updated) return NextResponse.json({error: 'Not found'}, {status: 404});
     return NextResponse.json({data: updated}, {status: 200});
   } catch (err: any) {
@@ -40,13 +43,14 @@ export async function PUT(req: NextRequest, context: {params: {id: string}}) {
   }
 }
 
-export async function DELETE(_req: NextRequest, {params}: {params: {id: string}}) {
+export async function DELETE(_req: NextRequest, {params}: {params: Promise<{id: string}>}) {
   try {
-    const {id} = params;
+    const resolvedParams = await params;
+    const {id} = resolvedParams;
     if (!mongoose.isValidObjectId(id)) {
       return NextResponse.json({error: 'Invalid ID'}, {status: 400});
     }
-    const deleted = await deleteTodo(id);
+    const deleted = await Todo.findByIdAndDelete(id).lean();
     if (!deleted) return NextResponse.json({error: 'Not found'}, {status: 404});
     return NextResponse.json({message: 'Deleted successful'}, {status: 200});
   } catch (err: any) {

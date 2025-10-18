@@ -1,17 +1,21 @@
 import {NextRequest} from 'next/server';
 import {GET as getTodos, POST as postTodo} from '@/app/api/todo/route';
 import {GET as getTodoById, PUT as putTodo, DELETE as deleteTodo} from '@/app/api/todo/[id]/route';
-import * as todoController from '@/controllers/todoController';
+import {Todo} from '@/models/todo';
 import mongoose from 'mongoose';
 
-// Mock DB and controllers
+// Mock DB and Todo model
 jest.mock('@/lib/db');
-jest.mock('@/controllers/todoController', () => ({
-  listTodos: jest.fn(),
-  createTodo: jest.fn(),
-  getTodo: jest.fn(),
-  updateTodo: jest.fn(),
-  deleteTodo: jest.fn(),
+jest.mock('@/models/todo', () => ({
+  Todo: {
+    find: jest.fn().mockReturnThis(),
+    sort: jest.fn().mockReturnThis(),
+    lean: jest.fn(),
+    create: jest.fn(),
+    findById: jest.fn().mockReturnThis(),
+    findByIdAndUpdate: jest.fn().mockReturnThis(),
+    findByIdAndDelete: jest.fn().mockReturnThis(),
+  },
 }));
 
 describe('Todos API Routes', () => {
@@ -24,7 +28,7 @@ describe('Todos API Routes', () => {
   describe('GET /api/todos', () => {
     it('returns todos successfully', async () => {
       const mockTodos = [{id: 1, title: 'Test Todo'}];
-      (todoController.listTodos as jest.Mock).mockResolvedValue(mockTodos);
+      (Todo.find().sort().lean as jest.Mock).mockResolvedValue(mockTodos);
 
       const res = await getTodos();
       const json = await res.json();
@@ -34,7 +38,7 @@ describe('Todos API Routes', () => {
     });
 
     it('handles errors', async () => {
-      (todoController.listTodos as jest.Mock).mockRejectedValue(new Error('DB error'));
+      (Todo.find().sort().lean as jest.Mock).mockRejectedValue(new Error('DB error'));
 
       const res = await getTodos();
       const json = await res.json();
@@ -49,7 +53,8 @@ describe('Todos API Routes', () => {
   describe('POST /api/todos', () => {
     it('creates a todo successfully', async () => {
       const mockTodo = {id: 1, title: 'New Todo'};
-      (todoController.createTodo as jest.Mock).mockResolvedValue(mockTodo);
+      const mockDoc = {toObject: jest.fn().mockReturnValue(mockTodo)};
+      (Todo.create as jest.Mock).mockResolvedValue(mockDoc);
 
       const req = new NextRequest('http://localhost/api/todos', {
         method: 'POST',
@@ -78,7 +83,7 @@ describe('Todos API Routes', () => {
     });
 
     it('handles creation failure', async () => {
-      (todoController.createTodo as jest.Mock).mockRejectedValue(new Error('DB insert error'));
+      (Todo.create as jest.Mock).mockRejectedValue(new Error('DB insert error'));
 
       const req = new NextRequest('http://localhost/api/todos', {
         method: 'POST',
@@ -98,9 +103,9 @@ describe('Todos API Routes', () => {
   describe('GET /api/todos/[id]', () => {
     it('returns a todo successfully', async () => {
       const mockTodo = {id: validId, title: 'Test Todo'};
-      (todoController.getTodo as jest.Mock).mockResolvedValue(mockTodo);
+      (Todo.findById().lean as jest.Mock).mockResolvedValue(mockTodo);
 
-      const res = await getTodoById({} as any, {params: {id: validId}});
+      const res = await getTodoById({} as any, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -108,9 +113,9 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 404 if not found', async () => {
-      (todoController.getTodo as jest.Mock).mockResolvedValue(null);
+      (Todo.findById().lean as jest.Mock).mockResolvedValue(null);
 
-      const res = await getTodoById({} as any, {params: {id: validId}});
+      const res = await getTodoById({} as any, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -118,7 +123,7 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 400 for invalid ID', async () => {
-      const res = await getTodoById({} as any, {params: {id: invalidId}});
+      const res = await getTodoById({} as any, {params: Promise.resolve({id: invalidId})});
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -130,14 +135,14 @@ describe('Todos API Routes', () => {
   describe('PUT /api/todos/[id]', () => {
     it('updates a todo successfully', async () => {
       const updatedTodo = {id: validId, title: 'Updated Todo'};
-      (todoController.updateTodo as jest.Mock).mockResolvedValue(updatedTodo);
+      (Todo.findByIdAndUpdate().lean as jest.Mock).mockResolvedValue(updatedTodo);
 
       const req = new NextRequest('http://localhost/api/todos', {
         method: 'PUT',
         body: JSON.stringify({title: 'Updated Todo'}),
       }) as any;
 
-      const res = await putTodo(req, {params: {id: validId}});
+      const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -150,7 +155,7 @@ describe('Todos API Routes', () => {
         body: JSON.stringify({}), // invalid
       }) as any;
 
-      const res = await putTodo(req, {params: {id: validId}});
+      const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -158,14 +163,14 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 404 if not found', async () => {
-      (todoController.updateTodo as jest.Mock).mockResolvedValue(null);
+      (Todo.findByIdAndUpdate().lean as jest.Mock).mockResolvedValue(null);
 
       const req = new NextRequest('http://localhost/api/todos', {
         method: 'PUT',
         body: JSON.stringify({title: 'Updated Todo'}),
       }) as any;
 
-      const res = await putTodo(req, {params: {id: validId}});
+      const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -176,9 +181,9 @@ describe('Todos API Routes', () => {
   // ===== DELETE /api/todos/[id] =====
   describe('DELETE /api/todos/[id]', () => {
     it('deletes a todo successfully', async () => {
-      (todoController.deleteTodo as jest.Mock).mockResolvedValue(true);
+      (Todo.findByIdAndDelete().lean as jest.Mock).mockResolvedValue(true);
 
-      const res = await deleteTodo({} as any, {params: {id: validId}});
+      const res = await deleteTodo({} as any, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -186,9 +191,9 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 404 if not found', async () => {
-      (todoController.deleteTodo as jest.Mock).mockResolvedValue(false);
+      (Todo.findByIdAndDelete().lean as jest.Mock).mockResolvedValue(false);
 
-      const res = await deleteTodo({} as any, {params: {id: validId}});
+      const res = await deleteTodo({} as any, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -196,7 +201,7 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 400 for invalid ID', async () => {
-      const res = await deleteTodo({} as any, {params: {id: invalidId}});
+      const res = await deleteTodo({} as any, {params: Promise.resolve({id: invalidId})});
       const json = await res.json();
 
       expect(res.status).toBe(400);
