@@ -4,13 +4,15 @@ A modern, full-stack Todo API built with Next.js 15, MongoDB, TypeScript, and co
 
 ## ✨ Features
 
+- **🔐 User Authentication** - JWT-based authentication with signup/login
 - **🔄 RESTful API** - Complete CRUD operations for todos
+- **👤 User-Specific Data** - Todos are isolated per user
 - **📊 MongoDB Integration** - Mongoose ODM with proper schema validation
 - **🛡️ Type Safety** - Full TypeScript support with Zod validation
 - **📚 API Documentation** - Interactive Swagger UI documentation
 - **🧪 Comprehensive Testing** - Jest test suite with 100% API coverage
 - **⚡ Next.js 15** - Latest features including async route params
-- **🎨 Modern UI** - Tailwind CSS styling
+- **🎨 Modern UI** - Tailwind CSS styling with authentication interface
 - **🔧 Developer Experience** - ESLint, Turbopack, hot reloading
 
 ## 🏗️ Architecture
@@ -19,13 +21,15 @@ A modern, full-stack Todo API built with Next.js 15, MongoDB, TypeScript, and co
 src/
 ├── app/                    # Next.js App Router
 │   ├── api/               # API routes
-│   │   └── todo/          # Todo endpoints
+│   │   ├── auth/          # Authentication endpoints
+│   │   │   ├── signup/    # User registration
+│   │   │   └── login/     # User login
+│   │   └── todo/          # Todo endpoints (protected)
 │   └── api-docs/          # Swagger UI documentation
-├── controllers/           # Business logic layer
-├── models/               # Mongoose schemas
+├── middleware/            # Authentication middleware
+├── models/               # Mongoose schemas (User, Todo)
 ├── validation/           # Zod validation schemas
-├── lib/                  # Database connection
-├── types/                # TypeScript declarations
+├── lib/                  # Database connection & JWT utilities
 └── tests/                # Test files
 ```
 
@@ -58,6 +62,8 @@ src/
    ```env
    MONGODB_URI=mongodb://localhost:27017/todo_app
    MONGODB_DB=todo_app
+   JWT_SECRET=your-super-secret-jwt-key
+   JWT_EXPIRES_IN=7d
    ```
 
 4. **Start development server**
@@ -69,6 +75,58 @@ src/
 5. **Open your browser**
    - Main app: [http://localhost:3000](http://localhost:3000)
    - API docs: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
+
+## 🔐 Authentication
+
+The application now includes user authentication with the following features:
+
+### API Endpoints
+
+**Authentication:**
+
+- `POST /api/auth/signup` - Create a new user account
+- `POST /api/auth/login` - Login with email and password
+
+**Todos (Protected - requires JWT token):**
+
+- `GET /api/todo` - Get all todos for the authenticated user
+- `POST /api/todo` - Create a new todo
+- `GET /api/todo/[id]` - Get a specific todo
+- `PUT /api/todo/[id]` - Update a todo
+- `DELETE /api/todo/[id]` - Delete a todo
+
+### Usage Example
+
+1. **Sign up a new user:**
+
+   ```bash
+   curl -X POST http://localhost:3000/api/auth/signup \
+     -H "Content-Type: application/json" \
+     -d '{"email": "user@example.com", "password": "password123"}'
+   ```
+
+2. **Login:**
+
+   ```bash
+   curl -X POST http://localhost:3000/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"email": "user@example.com", "password": "password123"}'
+   ```
+
+3. **Create a todo (with JWT token):**
+
+   ```bash
+   curl -X POST http://localhost:3000/api/todo \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+     -d '{"title": "My first todo", "description": "This is a test todo"}'
+   ```
+
+4. **Get all todos:**
+   ```bash
+   curl -X GET http://localhost:3000/api/todo \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
+   ```
 
 ## 📚 API Documentation
 
@@ -226,10 +284,20 @@ npm run test         # Run Jest tests
 ### Database Schema
 
 ```typescript
+interface User {
+  _id: ObjectId;
+  email: string; // Required, unique, validated
+  password: string; // Required, hashed with bcrypt
+  createdAt: Date; // Auto-generated
+  updatedAt: Date; // Auto-generated
+}
+
 interface Todo {
   _id: ObjectId;
   title: string; // Required, 3-100 chars
+  description?: string; // Optional, max 500 chars
   status: 'pending' | 'completed'; // Default: 'pending'
+  userId: string; // Required, references User._id
   createdAt: Date; // Auto-generated
 }
 ```
@@ -238,11 +306,13 @@ interface Todo {
 
 ### Environment Variables
 
-| Variable      | Description               | Default        |
-| ------------- | ------------------------- | -------------- |
-| `MONGODB_URI` | MongoDB connection string | Required       |
-| `MONGODB_DB`  | Database name             | `nextjs_todos` |
-| `NODE_ENV`    | Environment mode          | `development`  |
+| Variable         | Description               | Default        |
+| ---------------- | ------------------------- | -------------- |
+| `MONGODB_URI`    | MongoDB connection string | Required       |
+| `MONGODB_DB`     | Database name             | `nextjs_todos` |
+| `JWT_SECRET`     | JWT signing secret        | Required       |
+| `JWT_EXPIRES_IN` | JWT expiration time       | `7d`           |
+| `NODE_ENV`       | Environment mode          | `development`  |
 
 ### MongoDB Setup
 

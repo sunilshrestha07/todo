@@ -2,45 +2,103 @@ import {NextRequest} from 'next/server';
 import {GET as getTodos, POST as postTodo} from '@/app/api/todo/route';
 import {GET as getTodoById, PUT as putTodo, DELETE as deleteTodo} from '@/app/api/todo/[id]/route';
 import {Todo} from '@/models/todo';
+import {User} from '@/models/user';
 import mongoose from 'mongoose';
 
-// Mock DB and Todo model
+// Mock DB and models
 jest.mock('@/lib/db');
 jest.mock('@/models/todo', () => ({
   Todo: {
     find: jest.fn().mockReturnThis(),
+    findOne: jest.fn().mockReturnThis(),
     sort: jest.fn().mockReturnThis(),
     lean: jest.fn(),
     create: jest.fn(),
     findById: jest.fn().mockReturnThis(),
     findByIdAndUpdate: jest.fn().mockReturnThis(),
     findByIdAndDelete: jest.fn().mockReturnThis(),
+    findOneAndUpdate: jest.fn().mockReturnThis(),
+    findOneAndDelete: jest.fn().mockReturnThis(),
   },
 }));
 
-describe('Todos API Routes', () => {
+jest.mock('@/models/user', () => ({
+  User: {
+    findById: jest.fn(),
+  },
+}));
+
+// Mock authentication middleware
+jest.mock('@/middleware/auth', () => ({
+  authenticateUser: jest.fn(),
+}));
+
+describe('Todos API Routes with Authentication', () => {
   afterEach(() => jest.clearAllMocks());
 
   const validId = new mongoose.Types.ObjectId().toString();
   const invalidId = '123';
+  const userId = 'user123';
+  const mockUser = {id: userId, email: 'test@example.com'};
+
+  // Mock authenticated request
+  const createAuthenticatedRequest = (method: string = 'GET', body?: string) => {
+    const req = new NextRequest('http://localhost/api/todo', {
+      method,
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+    (req as any).user = mockUser;
+    return req;
+  };
+
+  beforeEach(() => {
+    // Mock successful authentication by default
+    const {authenticateUser} = require('@/middleware/auth');
+    (authenticateUser as jest.Mock).mockResolvedValue(null);
+  });
 
   // ===== GET /api/todos =====
   describe('GET /api/todos', () => {
-    it('returns todos successfully', async () => {
-      const mockTodos = [{id: 1, title: 'Test Todo'}];
+    it('returns user todos successfully', async () => {
+      const mockTodos = [
+        {_id: 'todo1', title: 'Test Todo 1', userId, status: 'pending'},
+        {_id: 'todo2', title: 'Test Todo 2', userId, status: 'completed'},
+      ];
       (Todo.find().sort().lean as jest.Mock).mockResolvedValue(mockTodos);
 
-      const res = await getTodos();
+      const req = createAuthenticatedRequest();
+      const res = await getTodos(req);
       const json = await res.json();
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual(mockTodos);
+      expect(Todo.find).toHaveBeenCalledWith({userId});
     });
 
-    it('handles errors', async () => {
+    it('returns 401 when not authenticated', async () => {
+      const {authenticateUser} = require('@/middleware/auth');
+      (authenticateUser as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({error: 'Access denied. No token provided.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        })
+      );
+
+      const req = new NextRequest('http://localhost/api/todo');
+      const res = await getTodos(req);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('handles database errors', async () => {
       (Todo.find().sort().lean as jest.Mock).mockRejectedValue(new Error('DB error'));
 
-      const res = await getTodos();
+      const req = createAuthenticatedRequest();
+      const res = await getTodos(req);
       const json = await res.json();
 
       expect(res.status).toBe(500);
@@ -51,28 +109,44 @@ describe('Todos API Routes', () => {
 
   // ===== POST /api/todos =====
   describe('POST /api/todos', () => {
-    it('creates a todo successfully', async () => {
-      const mockTodo = {id: 1, title: 'New Todo'};
+    it('creates a todo successfully for authenticated user', async () => {
+      const mockTodo = {_id: 'todo1', title: 'New Todo', userId, status: 'pending'};
       const mockDoc = {toObject: jest.fn().mockReturnValue(mockTodo)};
       (Todo.create as jest.Mock).mockResolvedValue(mockDoc);
 
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'POST',
-        body: JSON.stringify({title: 'New Todo'}),
-      }) as any;
+      const req = createAuthenticatedRequest('POST', JSON.stringify({title: 'New Todo'}));
 
       const res = await postTodo(req);
       const json = await res.json();
 
       expect(res.status).toBe(201);
       expect(json.data).toEqual(mockTodo);
+      expect(Todo.create).toHaveBeenCalledWith({
+        title: 'New Todo',
+        userId,
+      });
+    });
+
+    it('returns 401 when not authenticated', async () => {
+      const {authenticateUser} = require('@/middleware/auth');
+      (authenticateUser as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({error: 'Access denied. No token provided.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        })
+      );
+
+      const req = new NextRequest('http://localhost/api/todo', {
+        method: 'POST',
+        body: JSON.stringify({title: 'New Todo'}),
+      });
+
+      const res = await postTodo(req);
+      expect(res.status).toBe(401);
     });
 
     it('returns validation error', async () => {
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'POST',
-        body: JSON.stringify({}), // invalid
-      }) as any;
+      const req = createAuthenticatedRequest('POST', JSON.stringify({})); // invalid
 
       const res = await postTodo(req);
       const json = await res.json();
@@ -85,10 +159,7 @@ describe('Todos API Routes', () => {
     it('handles creation failure', async () => {
       (Todo.create as jest.Mock).mockRejectedValue(new Error('DB insert error'));
 
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'POST',
-        body: JSON.stringify({title: 'Fail Todo'}),
-      }) as any;
+      const req = createAuthenticatedRequest('POST', JSON.stringify({title: 'Fail Todo'}));
 
       const res = await postTodo(req);
       const json = await res.json();
@@ -101,21 +172,39 @@ describe('Todos API Routes', () => {
 
   // ===== GET /api/todos/[id] =====
   describe('GET /api/todos/[id]', () => {
-    it('returns a todo successfully', async () => {
-      const mockTodo = {id: validId, title: 'Test Todo'};
-      (Todo.findById().lean as jest.Mock).mockResolvedValue(mockTodo);
+    it('returns user todo successfully', async () => {
+      const mockTodo = {_id: validId, title: 'Test Todo', userId, status: 'pending'};
+      (Todo.findOne().lean as jest.Mock).mockResolvedValue(mockTodo);
 
-      const res = await getTodoById({} as any, {params: Promise.resolve({id: validId})});
+      const req = createAuthenticatedRequest();
+      const res = await getTodoById(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual(mockTodo);
+      expect(Todo.findOne).toHaveBeenCalledWith({_id: validId, userId});
     });
 
-    it('returns 404 if not found', async () => {
-      (Todo.findById().lean as jest.Mock).mockResolvedValue(null);
+    it('returns 401 when not authenticated', async () => {
+      const {authenticateUser} = require('@/middleware/auth');
+      (authenticateUser as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({error: 'Access denied. No token provided.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        })
+      );
 
-      const res = await getTodoById({} as any, {params: Promise.resolve({id: validId})});
+      const req = new NextRequest('http://localhost/api/todo/123');
+      const res = await getTodoById(req, {params: Promise.resolve({id: validId})});
+
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 404 if todo not found or not owned by user', async () => {
+      (Todo.findOne().lean as jest.Mock).mockResolvedValue(null);
+
+      const req = createAuthenticatedRequest();
+      const res = await getTodoById(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -123,7 +212,8 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 400 for invalid ID', async () => {
-      const res = await getTodoById({} as any, {params: Promise.resolve({id: invalidId})});
+      const req = createAuthenticatedRequest();
+      const res = await getTodoById(req, {params: Promise.resolve({id: invalidId})});
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -133,27 +223,44 @@ describe('Todos API Routes', () => {
 
   // ===== PUT /api/todos/[id] =====
   describe('PUT /api/todos/[id]', () => {
-    it('updates a todo successfully', async () => {
-      const updatedTodo = {id: validId, title: 'Updated Todo'};
-      (Todo.findByIdAndUpdate().lean as jest.Mock).mockResolvedValue(updatedTodo);
+    it('updates user todo successfully', async () => {
+      const updatedTodo = {_id: validId, title: 'Updated Todo', userId, status: 'completed'};
+      (Todo.findOneAndUpdate().lean as jest.Mock).mockResolvedValue(updatedTodo);
 
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'PUT',
-        body: JSON.stringify({title: 'Updated Todo'}),
-      }) as any;
+      const req = createAuthenticatedRequest('PUT', JSON.stringify({title: 'Updated Todo', status: 'completed'}));
 
       const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual(updatedTodo);
+      expect(Todo.findOneAndUpdate).toHaveBeenCalledWith(
+        {_id: validId, userId},
+        {title: 'Updated Todo', status: 'completed'},
+        {new: true, runValidators: true}
+      );
+    });
+
+    it('returns 401 when not authenticated', async () => {
+      const {authenticateUser} = require('@/middleware/auth');
+      (authenticateUser as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({error: 'Access denied. No token provided.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        })
+      );
+
+      const req = new NextRequest('http://localhost/api/todo/123', {
+        method: 'PUT',
+        body: JSON.stringify({title: 'Updated Todo'}),
+      });
+
+      const res = await putTodo(req, {params: Promise.resolve({id: validId})});
+      expect(res.status).toBe(401);
     });
 
     it('returns validation error', async () => {
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'PUT',
-        body: JSON.stringify({}), // invalid
-      }) as any;
+      const req = createAuthenticatedRequest('PUT', JSON.stringify({})); // invalid
 
       const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
@@ -162,13 +269,10 @@ describe('Todos API Routes', () => {
       expect(json.error).toBe('Validation error');
     });
 
-    it('returns 404 if not found', async () => {
-      (Todo.findByIdAndUpdate().lean as jest.Mock).mockResolvedValue(null);
+    it('returns 404 if todo not found or not owned by user', async () => {
+      (Todo.findOneAndUpdate().lean as jest.Mock).mockResolvedValue(null);
 
-      const req = new NextRequest('http://localhost/api/todos', {
-        method: 'PUT',
-        body: JSON.stringify({title: 'Updated Todo'}),
-      }) as any;
+      const req = createAuthenticatedRequest('PUT', JSON.stringify({title: 'Updated Todo'}));
 
       const res = await putTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
@@ -180,20 +284,39 @@ describe('Todos API Routes', () => {
 
   // ===== DELETE /api/todos/[id] =====
   describe('DELETE /api/todos/[id]', () => {
-    it('deletes a todo successfully', async () => {
-      (Todo.findByIdAndDelete().lean as jest.Mock).mockResolvedValue(true);
+    it('deletes user todo successfully', async () => {
+      const deletedTodo = {_id: validId, title: 'Deleted Todo', userId};
+      (Todo.findOneAndDelete().lean as jest.Mock).mockResolvedValue(deletedTodo);
 
-      const res = await deleteTodo({} as any, {params: Promise.resolve({id: validId})});
+      const req = createAuthenticatedRequest();
+      const res = await deleteTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(200);
       expect(json.message).toBe('Deleted successful');
+      expect(Todo.findOneAndDelete).toHaveBeenCalledWith({_id: validId, userId});
     });
 
-    it('returns 404 if not found', async () => {
-      (Todo.findByIdAndDelete().lean as jest.Mock).mockResolvedValue(false);
+    it('returns 401 when not authenticated', async () => {
+      const {authenticateUser} = require('@/middleware/auth');
+      (authenticateUser as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({error: 'Access denied. No token provided.'}), {
+          status: 401,
+          headers: {'Content-Type': 'application/json'},
+        })
+      );
 
-      const res = await deleteTodo({} as any, {params: Promise.resolve({id: validId})});
+      const req = new NextRequest('http://localhost/api/todo/123');
+      const res = await deleteTodo(req, {params: Promise.resolve({id: validId})});
+
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 404 if todo not found or not owned by user', async () => {
+      (Todo.findOneAndDelete().lean as jest.Mock).mockResolvedValue(null);
+
+      const req = createAuthenticatedRequest();
+      const res = await deleteTodo(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -201,11 +324,43 @@ describe('Todos API Routes', () => {
     });
 
     it('returns 400 for invalid ID', async () => {
-      const res = await deleteTodo({} as any, {params: Promise.resolve({id: invalidId})});
+      const req = createAuthenticatedRequest();
+      const res = await deleteTodo(req, {params: Promise.resolve({id: invalidId})});
       const json = await res.json();
 
       expect(res.status).toBe(400);
       expect(json.error).toBe('Invalid ID');
+    });
+  });
+
+  // ===== User-specific todo filtering tests =====
+  describe('User-specific todo filtering', () => {
+    it('only returns todos belonging to authenticated user', async () => {
+      const userTodos = [
+        {_id: 'todo1', title: 'User Todo 1', userId, status: 'pending'},
+        {_id: 'todo2', title: 'User Todo 2', userId, status: 'completed'},
+      ];
+      (Todo.find().sort().lean as jest.Mock).mockResolvedValue(userTodos);
+
+      const req = createAuthenticatedRequest();
+      const res = await getTodos(req);
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.data).toEqual(userTodos);
+      expect(Todo.find).toHaveBeenCalledWith({userId});
+    });
+
+    it('prevents access to other users todos', async () => {
+      const otherUserTodo = {_id: 'todo1', title: 'Other User Todo', userId: 'other123'};
+      (Todo.findOne().lean as jest.Mock).mockResolvedValue(null); // Not found because userId doesn't match
+
+      const req = createAuthenticatedRequest();
+      const res = await getTodoById(req, {params: Promise.resolve({id: 'todo1'})});
+      const json = await res.json();
+
+      expect(res.status).toBe(404);
+      expect(json.error).toBe('Not found');
     });
   });
 });

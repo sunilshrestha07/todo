@@ -1,103 +1,355 @@
-import Image from "next/image";
+'use client';
+
+import {useState} from 'react';
+
+interface User {
+  id: string;
+  email: string;
+}
+
+interface Todo {
+  _id: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'completed';
+  createdAt: string;
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // Auth functions
+  const signup = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password}),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setUser(data.data.user);
+        setToken(data.data.token);
+        setMessage('Signup successful!');
+      } else {
+        setMessage(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+    setLoading(false);
+  };
+
+  const login = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email, password}),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setUser(data.data.user);
+        setToken(data.data.token);
+        setMessage('Login successful!');
+        fetchTodos();
+      } else {
+        setMessage(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+    setLoading(false);
+  };
+
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    setTodos([]);
+    setMessage('Logged out');
+  };
+
+  // Todo functions
+  const fetchTodos = async () => {
+    if (!token) return;
+
+    try {
+      const response = await fetch('/api/todo', {
+        headers: {Authorization: `Bearer ${token}`},
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setTodos(data.data);
+      } else {
+        setMessage(`Error fetching todos: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+  };
+
+  const createTodo = async (title: string, description?: string) => {
+    if (!token) return;
+
+    try {
+      const response = await fetch('/api/todo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({title, description}),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setTodos([data.data, ...todos]);
+        setMessage('Todo created!');
+      } else {
+        setMessage(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+  };
+
+  const updateTodo = async (id: string, status: 'pending' | 'completed') => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`/api/todo/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({status}),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setTodos(todos.map((todo) => (todo._id === id ? {...todo, status} : todo)));
+        setMessage('Todo updated!');
+      } else {
+        setMessage(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+  };
+
+  const deleteTodo = async (id: string) => {
+    if (!token) return;
+
+    try {
+      const response = await fetch(`/api/todo/${id}`, {
+        method: 'DELETE',
+        headers: {Authorization: `Bearer ${token}`},
+      });
+
+      if (response.ok) {
+        setTodos(todos.filter((todo) => todo._id !== id));
+        setMessage('Todo deleted!');
+      } else {
+        const data = await response.json();
+        setMessage(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      setMessage('Network error');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 py-8">
+      <div className="max-w-4xl mx-auto px-4">
+        <h1 className="text-3xl font-bold text-center mb-8">Todo App with Authentication</h1>
+
+        {message && <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">{message}</div>}
+
+        {!user ? (
+          <AuthForm onSignup={signup} onLogin={login} loading={loading} />
+        ) : (
+          <div>
+            <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
+              Welcome, {user.email}!
+              <button onClick={logout} className="ml-4 px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                Logout
+              </button>
+            </div>
+
+            <TodoApp todos={todos} onCreateTodo={createTodo} onUpdateTodo={updateTodo} onDeleteTodo={deleteTodo} onFetchTodos={fetchTodos} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AuthForm({
+  onSignup,
+  onLogin,
+  loading,
+}: {
+  onSignup: (email: string, password: string) => void;
+  onLogin: (email: string, password: string) => void;
+  loading: boolean;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLogin) {
+      onLogin(email, password);
+    } else {
+      onSignup(email, password);
+    }
+  };
+
+  return (
+    <div className="max-w-md mx-auto bg-white p-6 rounded-lg shadow-md">
+      <h2 className="text-2xl font-bold mb-4 text-center">{isLogin ? 'Login' : 'Sign Up'}</h2>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        </div>
+
+        <button type="submit" disabled={loading} className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 disabled:opacity-50">
+          {loading ? 'Loading...' : isLogin ? 'Login' : 'Sign Up'}
+        </button>
+      </form>
+
+      <p className="text-center mt-4">
+        {isLogin ? "Don't have an account? " : 'Already have an account? '}
+        <button onClick={() => setIsLogin(!isLogin)} className="text-blue-500 hover:underline">
+          {isLogin ? 'Sign up' : 'Login'}
+        </button>
+      </p>
+    </div>
+  );
+}
+
+function TodoApp({
+  todos,
+  onCreateTodo,
+  onUpdateTodo,
+  onDeleteTodo,
+  onFetchTodos,
+}: {
+  todos: Todo[];
+  onCreateTodo: (title: string, description?: string) => void;
+  onUpdateTodo: (id: string, status: 'pending' | 'completed') => void;
+  onDeleteTodo: (id: string) => void;
+  onFetchTodos: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (title.trim()) {
+      onCreateTodo(title.trim(), description.trim() || undefined);
+      setTitle('');
+      setDescription('');
+    }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="mb-6">
+        <button onClick={onFetchTodos} className="mb-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+          Refresh Todos
+        </button>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <input
+              type="text"
+              placeholder="Todo title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <input
+              type="text"
+              placeholder="Description (optional)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button type="submit" className="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">
+            Add Todo
+          </button>
+        </form>
+      </div>
+
+      <div className="space-y-2">
+        {todos.length === 0 ? (
+          <p className="text-gray-500 text-center">No todos yet. Create one above!</p>
+        ) : (
+          todos.map((todo) => (
+            <div
+              key={todo._id}
+              className={`p-4 border rounded-lg ${todo.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h3 className={`font-medium ${todo.status === 'completed' ? 'line-through text-gray-500' : ''}`}>{todo.title}</h3>
+                  {todo.description && (
+                    <p className={`text-sm text-gray-600 ${todo.status === 'completed' ? 'line-through' : ''}`}>{todo.description}</p>
+                  )}
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => onUpdateTodo(todo._id, todo.status === 'completed' ? 'pending' : 'completed')}
+                    className={`px-3 py-1 rounded text-sm ${
+                      todo.status === 'completed' ? 'bg-yellow-500 text-white hover:bg-yellow-600' : 'bg-green-500 text-white hover:bg-green-600'
+                    }`}
+                  >
+                    {todo.status === 'completed' ? 'Mark Pending' : 'Mark Complete'}
+                  </button>
+                  <button onClick={() => onDeleteTodo(todo._id)} className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600">
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
