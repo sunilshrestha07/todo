@@ -7,7 +7,8 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {
   try {
-    const {email, password} = await req.json();
+    const body = await req.json();
+    const {email, password} = signupSchema.parse(body);
 
     // Check if user already exists
     const existingUser = await User.findOne({email: email});
