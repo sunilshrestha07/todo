@@ -111,8 +111,7 @@ describe('Todos API Routes with Authentication', () => {
   describe('POST /api/todos', () => {
     it('creates a todo successfully for authenticated user', async () => {
       const mockTodo = {_id: 'todo1', title: 'New Todo', userId, status: 'pending'};
-      const mockDoc = {toObject: jest.fn().mockReturnValue(mockTodo)};
-      (Todo.create as jest.Mock).mockResolvedValue(mockDoc);
+      (Todo.create as jest.Mock).mockResolvedValue(mockTodo);
 
       const req = createAuthenticatedRequest('POST', JSON.stringify({title: 'New Todo'}));
 
@@ -122,8 +121,9 @@ describe('Todos API Routes with Authentication', () => {
       expect(res.status).toBe(201);
       expect(json.data).toEqual(mockTodo);
       expect(Todo.create).toHaveBeenCalledWith({
-        title: 'New Todo',
         userId,
+        title: 'New Todo',
+        description: undefined,
       });
     });
 
@@ -352,11 +352,10 @@ describe('Todos API Routes with Authentication', () => {
     });
 
     it('prevents access to other users todos', async () => {
-      const otherUserTodo = {_id: 'todo1', title: 'Other User Todo', userId: 'other123'};
       (Todo.findOne().lean as jest.Mock).mockResolvedValue(null); // Not found because userId doesn't match
 
       const req = createAuthenticatedRequest();
-      const res = await getTodoById(req, {params: Promise.resolve({id: 'todo1'})});
+      const res = await getTodoById(req, {params: Promise.resolve({id: validId})});
       const json = await res.json();
 
       expect(res.status).toBe(404);
