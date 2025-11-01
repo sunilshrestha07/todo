@@ -4,8 +4,6 @@ import bcrypt from 'bcryptjs';
 export interface IUser {
   email: string;
   password: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 const UserSchema = new Schema<IUser>(

@@ -20,6 +20,8 @@ export const authenticateUser = async (req: NextRequest): Promise<NextResponse |
     }
 
     const decoded = verifyToken(token);
+
+    // it exclude the user password from finding in this query
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
